@@ -6,7 +6,7 @@ Multiple methods to extract track information from Apple Music playlist URLs.
 Since Apple Music doesn't have a public API, these methods use various workarounds.
 
 Required libraries:
-pip install requests beautifulsoup4 selenium webdriver-manager lxml pyobjc-framework-ScriptingBridge
+pip install requests beautifulsoup4 selenium webdriver-manager lxml yt_dlp fuzzywuzzy
 """
 
 import argparse
