@@ -12,6 +12,7 @@ pip install requests beautifulsoup4 selenium webdriver-manager lxml pyobjc-frame
 import argparse
 import json
 import re
+import os
 import time
 from pprint import pprint
 from typing import List, Dict, Optional
@@ -19,7 +20,8 @@ from dataclasses import dataclass
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs
-
+import yt_dlp
+from fuzzywuzzy import fuzz
 
 DEBUG=False
 
@@ -202,6 +204,7 @@ def get_tracklist(playlist_url, dont_save):
                 json.dump(tracks_data, f, indent=2)
             
             print(f"\nTracks saved to: {fname}")
+        return tracks_data
         
     else:
         print("\n❌ No tracks could be extracted from this playlist.")
@@ -211,6 +214,121 @@ def get_tracklist(playlist_url, dont_save):
         print("3. On macOS, add the playlist to your Music library and use AppleScript method")
         print("4. Manually copy track names from the web interface")
 
+
+class YTD:
+    def __init__(self, download_path: str = "./downloads"):
+        """Initialize the song downloader with specified download path."""
+        self.download_path = download_path
+        os.makedirs(download_path, exist_ok=True)
+        
+        # Configure yt-dlp options for audio download
+        self.ydl_opts = {
+            'download_archive': f'{download_path}/downloaded.txt',
+            'format': 'bestaudio/best',
+            'outtmpl': f'{download_path}/%(title)s.%(ext)s',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+            'quiet': False,
+            'no_warnings': False,
+        }
+    
+    def search_song(self, song_name: str, artist: str, max_results: int = 10) -> list:
+        """
+        Search for a song on YouTube and return search results.
+        
+        Args:
+            song_name: Name of the song
+            artist: Artist name
+            max_results: Maximum number of search results to return
+            
+        Returns:
+            List of dictionaries containing video information
+        """
+        search_query = f"{artist} {song_name}"
+        
+        search_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': True,
+        }
+        
+        with yt_dlp.YoutubeDL(search_opts) as ydl:
+            try:
+                # Search YouTube
+                search_results = ydl.extract_info(
+                    f"ytsearch{max_results}:{search_query}",
+                    download=False
+                )
+                
+                if 'entries' in search_results:
+                    return search_results['entries']
+                else:
+                    return []
+                    
+            except Exception as e:
+                print(f"Error searching for song: {e}")
+                return []
+
+    # Match name, artist, duration
+    def calculate_confidence(self, original, result: dict) -> float:
+        """Calculate confidence score for a match"""
+        result_title = result.get('title', '').lower()
+        # Remove keywords - 
+        keywords = ['(', ')', '[', ']', 'hd', 'original', 'lyrics', 'video', 'lyrics', 'official']
+        for w in keywords:
+            result_title = result_title.replace(w, '')
+        result_title = result_title.strip()
+        print(result_title)
+        result_artists = [artist['name'].lower() for artist in result.get('artists', [])]
+        result_artist = ', '.join(result_artists)
+        
+        original_title = original['title'].lower()
+        original_artist = original['artist'].lower()
+        
+        # Title similarity
+        title_score = fuzz.ratio(original_title, result_title) / 100
+        
+        # Artist similarity (check against all artists)
+        artist_scores = [fuzz.ratio(original_artist, artist) for artist in result_artists]
+        artist_score = max(artist_scores) / 100 if artist_scores else 0
+
+        # Duration gap seconds?
+        dur_diff = abs(original['duration'] - result['duration'])
+
+        # Overall confidence (weighted average)
+        confidence = (title_score * 0.4 + artist_score * 0.6 - dur_diff * 0.0002)
+        return confidence
+
+def get_tracks_on_yt(tracks, thresh = 0.2):
+    ytd = YTD()
+    # Loop over tracks, search, 
+    for track in tracks:
+        track['duration'] = track['duration']/1000.0
+        print(track)
+        res = ytd.search_song(track['title'], track['artist'])
+        best_conf = thresh
+        best_match = None
+        for r in res:
+            # Fuzzy match title, approx duration
+            confidence = ytd.calculate_confidence(track, r)
+            print(r['title'], r['duration'], confidence)
+            if best_conf < confidence:
+                best_match = r
+                best_conf = confidence
+
+        # download track
+        if best_match is not None:
+            print(f"Best match: {best_match['title']}")
+            print(f"URL: https://youtube.com/watch?v={best_match['id']}")
+            # Download the song
+            video_url = f"https://youtube.com/watch?v={best_match['id']}"
+            with yt_dlp.YoutubeDL(ytd.ydl_opts) as ydl:
+                ydl.download([video_url])
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Playlist options")
     parser.add_argument('--dont-save-tracklist', action='store_true', default=False, help="Save the extracted track data from the playlists")
@@ -219,4 +337,9 @@ if __name__ == "__main__":
                         help='apple playlist urls separated by space')
     args = parser.parse_args()
     for url in args.playlists:
-        get_tracklist(url, args.dont_save_tracklist)
+        tracks = get_tracklist(url, args.dont_save_tracklist)
+        # TODO : Read tracks from json file - modularity
+        
+    #with open('./tracks_pl.u-06oxp9gFYbm1vzN.json', 'r') as f:
+    #    tracks = json.loads(f.read())
+    get_tracks_on_yt(tracks['songs'])
