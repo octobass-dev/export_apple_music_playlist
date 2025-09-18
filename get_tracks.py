@@ -235,7 +235,7 @@ class YTD:
             'no_warnings': False,
         }
     
-    def search_song(self, song_name: str, artist: str, max_results: int = 10) -> list:
+    def search_song(self, search_query: str, max_results: int = 5) -> list:
         """
         Search for a song on YouTube and return search results.
         
@@ -246,9 +246,7 @@ class YTD:
             
         Returns:
             List of dictionaries containing video information
-        """
-        search_query = f"{artist} {song_name}"
-        
+        """ 
         search_opts = {
             'quiet': True,
             'no_warnings': True,
@@ -302,13 +300,18 @@ class YTD:
         confidence = (title_score * 0.4 + artist_score * 0.6 - dur_diff * 0.0002)
         return confidence
 
-def get_tracks_on_yt(tracks, thresh = 0.2):
-    ytd = YTD()
+def get_tracks_on_yt(tracks, output_dir='./downloads', thresh = 0.2):
+    ytd = YTD(output_dir)
     # Loop over tracks, search, 
     for track in tracks:
         track['duration'] = track['duration']/1000.0
         print(track)
-        res = ytd.search_song(track['title'], track['artist'])
+        # title - artist
+        search_query = f"{track['title']} {track['artist']}"
+        res = ytd.search_song(search_query)
+        ## artist - title
+        #search_query = f"{track['artist'} {track['title'}"
+        #res = ytd.search_song(search_query)
         best_conf = thresh
         best_match = None
         for r in res:
@@ -332,6 +335,7 @@ def get_tracks_on_yt(tracks, thresh = 0.2):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Playlist options")
     parser.add_argument('--dont-save-tracklist', action='store_true', default=False, help="Save the extracted track data from the playlists")
+    parser.add_argument('-d', '--output-dir',  default='./downloads', help="Location to download songs")
     parser.add_argument('playlists', nargs='*', type=str, 
                         default=["https://music.apple.com/us/playlist/todays-hits/pl.f4d106fed2bd41149aaacabb233eb5eb"],
                         help='apple playlist urls separated by space')
@@ -342,4 +346,4 @@ if __name__ == "__main__":
         
     #with open('./tracks_pl.u-06oxp9gFYbm1vzN.json', 'r') as f:
     #    tracks = json.loads(f.read())
-    get_tracks_on_yt(tracks['songs'])
+    get_tracks_on_yt(tracks['songs'], args.output_dir)
